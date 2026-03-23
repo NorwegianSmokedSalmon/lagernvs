@@ -1,7 +1,22 @@
-# LagerNVS
+# LagerNVS: Latent Geometry for Fully Neural Real-Time Novel View Synthesis
 
-LagerNVS is a feed-forward model for novel view synthesis (NVS). Given one or more input images of a scene, it synthesizes new views from arbitrary camera viewpoints in a **single forward pass, without per-scene optimization**. The model uses 3D biases without explicit 3D representations.
-The architecture features a large 3D-aware encoder (from VGGT pre-training) to extract scene tokens and a transformer-based renderer that conditions on these tokens via cross-attention to render novel views.
+<p align="center">
+  <a href="https://arxiv.org/abs/2603.20176"><img src="https://img.shields.io/badge/arXiv-Paper-b31b1b" alt="arXiv"></a>
+  <a href="https://szymanowiczs.github.io/lagernvs"><img src="https://img.shields.io/badge/🌐-Project_Page-orange" alt="Project Page"></a>
+  <a href="https://github.com/facebookresearch/lagernvs"><img src="https://img.shields.io/badge/GitHub-Repo-blue" alt="GitHub"></a>
+  <a href="https://huggingface.co/collections/facebook/lagernvs"><img src="https://img.shields.io/badge/HuggingFace-Model-green?logo=huggingface" alt="Models"></a>
+</p>
+
+<p align="center">
+  Stanislaw Szymanowicz<sup>1,2</sup>, Minghao Chen<sup>1,2</sup>, Jianyuan Wang<sup>1,2</sup>, Christian Rupprecht<sup>1</sup>, Andrea Vedaldi<sup>1,2</sup>
+</p>
+
+<p align="center">
+  <sup>1</sup>Visual Geometry Group (VGG), University of Oxford &nbsp;&nbsp; <sup>2</sup>Meta AI
+</p>
+
+LagerNVS is a feed-forward model for novel view synthesis (NVS). Given one or more input images of a scene, it synthesizes new views from a target cameras. It generalizes to in-the-wild data, renders new views in real time and can operate with or without known source camera poses.
+The model uses 3D biases without explicit 3D representations. The architecture features a large 3D-aware encoder (from VGGT pre-training) to extract scene tokens and a transformer-based renderer that conditions on these tokens via cross-attention to render novel views.
 
 ## Installation
 
