@@ -96,7 +96,17 @@ def main():
             "'square_crop' center-crops to square then resizes to target_size (256 models)."
         ),
     )
+    parser.add_argument(
+        "--gpu",
+        type=str,
+        default="0",
+        help="GPU ID to use (sets CUDA_VISIBLE_DEVICES)",
+    )
     args = parser.parse_args()
+
+    import os
+    if args.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     # -------------------------------------------------------------------------
     # 1. Device and dtype setup
