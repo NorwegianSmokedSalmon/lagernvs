@@ -56,12 +56,16 @@ def save_video(
     output_path,
     fps=25,
 ):
-    """Save a single video tensor to mp4.
+    """能够将推演完成的视频张量 (Tensor) 保存为能在本地播放的 .mp4 格式。
 
-    Args:
-        video_tensor: Video tensor of shape (V, C, H, W), float in [0, 1]
-        output_path: Path to save .mp4 file
-        fps: Frames per second
+    内部流程说明:
+    先调整维度将 (V帧数, C通道, H高, W宽) 变成 (V, H, W, C)，然后转成 numpy 数组。
+    截断数值在 [0,1] 后放大到 0-255 的 8 位整数范围，随后借用 libx264 进行底层 h264 高压缩编码。
+
+    参数:
+        video_tensor: 浮点视频张量 (范围 0~1)，形状应类似于 (V帧数, C通道, H高, W宽)
+        output_path: 目标保存路径 (需以 .mp4 结尾)
+        fps: 帧率 (默认: 每秒播放 25 帧)
     """
     video = einops.rearrange(video_tensor, "v c h w -> v h w c")
     video = video.detach().cpu().numpy()

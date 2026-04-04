@@ -13,26 +13,23 @@ def load_and_preprocess_images(
     image_path_list, mode="square_crop", target_size=512, patch_size=8
 ):
     """
-    Load and preprocess images for model input.
+    加载并对图像进行预处理，使其符合模型输入的要求。
 
-    Args:
-        image_path_list (list): List of paths to image files
-        mode (str): Preprocessing mode.
-            - "square_crop": Center-crops to the largest inscribed square at original
-              resolution, then resizes to target_size x target_size.
-            - "resize": Resizes maintaining aspect ratio so that the longer side
-              equals target_size. The shorter side is rounded to the nearest multiple
-              of patch_size. Raises ValueError if the shorter side would be less
-              than 0.5 * target_size.
-        target_size (int): Target size in pixels (default: 512)
-        patch_size (int): Patch size for dimension rounding in "resize" mode (default: 8)
+    参数:
+        image_path_list (list): 图像文件路径的列表。
+        mode (str): 预处理模式。
+            - "square_crop": 先将原始图像中心裁剪为最大的正方形，然后再统一缩放拉伸到 target_size x target_size。适合 256 模型。
+            - "resize": 保持图像原始的宽高比例，将较长的一边强行缩放至等于 target_size。
+              较短的一边会通过四舍五入对齐到 patch_size 的整数倍。如果短边被缩减到小于
+              0.5 * target_size，则会抛出异常强行中止。适合 512 通用模型。
+        target_size (int): 目标图像尺寸的像素值 (默认: 512)
+        patch_size (int): 补丁像素大小。在 "resize" 模式下，保证短边像素数能够被该值整除 (默认: 8)
 
-    Returns:
-        torch.Tensor: Batched tensor of preprocessed images with shape (N, 3, H, W)
+    返回:
+        torch.Tensor: 预处理后拼接成批次的图像张量，形状为 (N, 3, H, W) [N代表数量, 3代表RGB通道, H高, W宽]
 
-    Raises:
-        ValueError: If the input list is empty, mode is invalid, or aspect ratio
-            is too extreme in "resize" mode.
+    抛出异常:
+        ValueError: 当输入图像列表为空时；mode 不合法时；或者在 "resize" 模式下长宽比过于极端时。
     """
     if len(image_path_list) == 0:
         raise ValueError("At least 1 image is required")

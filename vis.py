@@ -21,19 +21,20 @@ def render_chunked(
     num_cond_views=2,
     device=None,
 ):
-    """Chunked rendering for when number of total views is large.
+    """当生成的总视角帧数非常庞大时，采用的分块 (Chunked) 渲染策略。
 
-    Useful mostly for evaluation when number of views is large.
+    主要用于显存有限时推演生成大量连续帧的操作。由于 Transformer 的自注意力计算对序列长度开销很大，
+    通过分治法可以避免 Out Of Memory。
 
-    Args:
-        model: The viewgen model.
-        inputs: Tuple of (cond_images, rays, cam_tokens) where:
-            - cond_images: (B, num_cond_views, C, H, W) conditioning images
-            - rays: (B, num_cond_views + video_length, 6, H, W) Plucker rays
-            - cam_tokens: (B, num_cond_views + video_length, 11) camera tokens
-        view_chunk_size: Number of target views per chunk.
-        num_cond_views: Number of conditioning views.
-        device: Device to move chunks to.
+    参数:
+        model: 三维视角生成的 LagerNVS 主大模型。
+        inputs: 包含了 (cond_images, rays, cam_tokens) 的元组:
+            - cond_images: (B, num_cond_views, C, H, W) 提供了环境上下文的条件源图像列。
+            - rays: (B, num_cond_views + video_length, 6, H, W) 所有视角的普吕克射线坐标。
+            - cam_tokens: (B, num_cond_views + video_length, 11) 所有视角的相机特征 Token。
+        view_chunk_size: 每一个渲染批次 (Chunk) 最多处理多少张新视角画面 (默认: 16)。
+        num_cond_views: 原输入源图像 (条件视图) 的数量。
+        device: 将特征数据放置到哪个计算设备上 (通常是 gpu)。
     """
     cond_images, rays_plucker, cam_token = inputs
 
@@ -995,31 +996,31 @@ def _slerp_quaternions(q1, q2, t):
 def create_target_camera_path(
     image_names, video_length, num_cond_views, image_size_hw, device, dtype, mode="resize"
 ):
-    """Create a target camera trajectory for rendering novel views.
+    """为渲染新视角，自动创建并规划虚拟摄影机的一段目标移动轨迹。
 
-    LagerNVS does not require input camera poses — it only needs a target
-    camera path specifying where to render from (as Plucker rays). This function
-    automatically constructs a smooth target trajectory by using VGGT to infer
-    approximate input view positions, then interpolating a path through them.
+    LagerNVS 大模型在推演时，并不需要你手动硬塞入相机的绝对位姿 (Pose) —— 它只需要一段目标
+    相机的轨迹，以便告诉它从什么角度去观察（即输入对应的 3D 普吕克射线）。
+    这个函数会自动地：先用 VGGT 算法大致推断出原始多张图片的粗略拍摄机位；然后基于这些机位，插值
+    规划出一条极度平滑的虚拟相机移动路径。
 
-    For multi-view (num_cond_views >= 2): Interpolates a B-spline path through
-    the inferred view positions with camera-based scene normalization.
-    For single-view (num_cond_views == 1): Uses world-based normalization and
-    creates a forward dolly by translating +0.3 along the camera z-axis.
+    对于多视图 (num_cond_views >= 2): 它会绘制一条 B样条 (B-spline) 3D曲线路径穿过推断出的机位点，
+    并进行针对相机的场景尺度归一化。
+    对于单视图 (num_cond_views == 1): 因为仅有一张图，它直接采用世界坐标系归一化，
+    并在模型内部沿摄像机本身的 z 轴方向，自动生成一段向前推镜头 (Dolly-in) 0.3 单位距离的轨迹。
 
-    Args:
-        image_names: List of image file paths (loaded internally at 518px for VGGT)
-        mode: Preprocessing mode for VGGT input images ("resize" or "square_crop")
-        video_length: Number of target video frames to generate
-        num_cond_views: Number of conditioning views
-        image_size_hw: Tuple (H, W) for the target Plucker ray resolution
-        device: Torch device
-        dtype: Torch dtype for autocast (e.g. torch.bfloat16)
+    参数:
+        image_names: 源文件的图片路径列表 (内部会读取并转成 518px 给 VGGT 解析)
+        video_length: 你期望生成的一段虚构相机的视频流有多少帧
+        num_cond_views: 原输入源图像 (作为场景条件基底) 的数量
+        image_size_hw: 元组形式，代表生成的 3D 射线的目标分辨率 (高，宽)
+        device: Torch 运算设备
+        dtype: 自动混精 (autocast) 时使用的 Torch 数据类型 (如 torch.bfloat16)
+        mode: 传给 VGGT 时截取图片的模式 ("resize" 或 "square_crop")
 
-    Returns:
-        Tuple of:
-        - rays: Plucker rays tensor of shape (1, num_cond_views + video_length, 6, H, W)
-        - cam_tokens: Camera tokens tensor of shape (1, num_cond_views + video_length, 11)
+    返回:
+        二元元组 (Tuple), 包含:
+        - rays (射线): 张量形状为 (1, num_cond_views + video_length, 6, H, W)，包含普吕克射线
+        - cam_tokens (相机特征): 张量形状为 (1, num_cond_views + video_length, 11)
     """
 
     # Load images at 518px for VGGT pose estimation

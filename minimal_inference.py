@@ -113,10 +113,11 @@ def main():
     args = parser.parse_args()
 
     # -------------------------------------------------------------------------
-    # 1. Device and dtype setup
+    # 第一步：设备 (Device) 与数据类型 (dtype) 的设置
     # -------------------------------------------------------------------------
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # bfloat16 requires Ampere+ GPUs (Compute Capability 8.0+), fall back to float16
+    # 如果是 Ampere 架构（例如 RTX 30/40系列，算力>=8.0）及以上的显卡，这里会自动使用支持更好的 bfloat16 数据类型。
+    # 否则退化到普通的 float16，以保证显存可以支撑。
     dtype = (
         torch.bfloat16
         if device == "cuda" and torch.cuda.get_device_capability()[0] >= 8
@@ -125,36 +126,34 @@ def main():
     print(f"Device: {device}, dtype: {dtype}")
 
     # -------------------------------------------------------------------------
-    # 2. Load and preprocess input images
+    # 第二步：加载并对输入图像进行预处理
     # -------------------------------------------------------------------------
-    # load_and_preprocess_images preprocesses input images.
-    # "resize" mode: longer side = target_size, aspect ratio preserved (General 512 model).
-    # "square_crop" mode: center-crop to square, resize to target_size x target_size (256 models).
-    # Returns tensor of shape (num_views, 3, H, W).
+    # 使用 load_and_preprocess_images 函数来预处理输入的源图像：
+    # "resize" 模式：保持原图宽高比，将最长边缩放到 target_size（适合通用 512 模型）。
+    # "square_crop" 模式：先进行中心方形裁剪，再强制缩放到 target_size 宽高（适合 256 模型）。
+    # 返回的张量尺寸预设为 (图片数量, 3通道, H, W)。
     image_names = args.images
     num_cond_views = len(image_names)
 
     images = load_and_preprocess_images(
         image_names, mode=args.mode, target_size=args.target_size, patch_size=8
     )
-    # Add batch dimension: (num_views, 3, H, W) -> (1, num_views, 3, H, W)
+    # 给这批图片增加一个 Batch 的维度，形状变为：(1, 视图数量, 3, H, W)
     images = images.to(device).unsqueeze(0)
     image_size_hw = (images.shape[-2], images.shape[-1])
     print(f"Loaded {num_cond_views} images, shape: {images.shape}")
 
     # -------------------------------------------------------------------------
-    # 3. Create target camera trajectory
+    # 第三步：创建目标相机的运动轨迹 (Trajectory)
     # -------------------------------------------------------------------------
-    # create_target_camera_path uses VGGT (downloaded automatically, ~4GB) to
-    # estimate approximate input camera poses, then interpolates a smooth
-    # B-spline camera path through them (multi-view) or creates a forward
-    # dolly motion (single-view).
-    #
-    # Returns:
-    #   rays:       (1, num_cond_views + video_length, 6, H, W) Plucker ray coords
-    #               Conditioning views get zero rays (model doesn't use input poses).
-    #   cam_tokens: (1, num_cond_views + video_length, 11) camera tokens encoding
-    #               scene scale normalization info.
+    # 核心调用：create_target_camera_path 函数。
+    # 这里的逻辑是：先使用 VGGT 算法（第一次运行会自动下载约4GB的预训练权重）去猜测这两张/多张输入图片在三维空间中大约的相对相机位姿。
+    # 然后，在这些猜测的相机位姿之间，插值出一条非常平滑的 B-spline（B样条）摄像机曲线运动轨迹。
+    # 如果只输入了一张图（单视图），它就会生成一段相机缓缓向前推进推镜头的目标运动轨迹。
+    # 
+    # 返回值说明：
+    #   rays (射线): 包含当前条件视图和要生成的一百个帧对应的 3D 普吕克坐标 (Plucker ray coords)，格式：(1, num_cond_views + video_length, 6, H, W)
+    #   cam_tokens: 向渲染模型传递尺度 (Scale) 归一化信息用的相机条件特征，形状：(1, num_cond_views + video_length, 11)
     print("Creating target camera path (downloads VGGT on first run)...")
     rays, cam_tokens = create_target_camera_path(
         image_names,
@@ -168,42 +167,38 @@ def main():
     print(f"Rays shape: {rays.shape}, cam_tokens shape: {cam_tokens.shape}")
 
     # -------------------------------------------------------------------------
-    # 4. Load the LagerNVS model
+    # 第四步：加载主模型 (LagerNVS) 的权重与运行架构
     # -------------------------------------------------------------------------
-    # EncDec_VitB8 = EncoderDecoder with ViT-B/8 config:
-    #   - Encoder: VGGT-based feature extractor (pretrained_vggt=False here
-    #     because the full model checkpoint already includes trained encoder weights)
-    #   - Decoder: 12-layer transformer renderer, patch_size=8, hidden_size=768
+    # EncDec_VitB8 = 对应的是带 ViT-B/8 配制的编解码器 (Encoder-Decoder) 体系：
+    #   - 编码器 (Encoder)：负责基于提取出原图的几何特征信息。
+    #   - 解码器 (Decoder)：这里的解码器是一个有 12 层 Transformer 的大规模渲染器 (patch_size=8, hidden_size=768)，利用前面的提取结果去真正完成 3D NVS 渲染。
     #
-    # attention_to_features_type controls how the renderer attends to encoder
-    # features:
-    #   "bidirectional_cross_attention" — General and DL3DV models
-    #   "full_attention"                — Re10k model
+    # attention_to_features_type 参数决定了渲染器如何对待和融合传入的图像提取特征：
+    #   "bidirectional_cross_attention" — 用于 General (通用) 和 DL3DV 的模型
+    #   "full_attention"                — 用于 Re10k 专用模型
     print(f"Loading model from {args.model_repo}...")
     model = EncDec_VitB8(
-        pretrained_vggt=False,
+        pretrained_vggt=False,  # 因为整个下载到的检查点已经打包包含了预训练权重，因此这里设为 false
         attention_to_features_type=args.attention_type,
     )
 
-    # Download checkpoint from gated HuggingFace repo (requires HF_TOKEN)
+    # 这一步负责从 HuggingFace Hub 下载并加载模型的权重文件 (model.pt)，大小为 4.41 GB。
+    # 需要在机器环境中设置好 HF 的鉴权 Token 且通过门控权限申请。
     ckpt_path = hf_hub_download(args.model_repo, filename="model.pt")
     model.load_state_dict(torch.load(ckpt_path, map_location="cpu")["model"])
     model.to(device)
-    model.eval()
+    model.eval()  # 转为推理模式，固化权重的随机Dropout之类操作
     print(f"Model loaded: {sum(p.numel() for p in model.parameters()):,} parameters")
 
     # -------------------------------------------------------------------------
-    # 5. Render novel views
+    # 第五步：在新视角轨迹上执行 3D 大模型渲染
     # -------------------------------------------------------------------------
-    # render_chunked processes target views in chunks of 16 to manage GPU memory.
-    # It internally uses torch.amp.autocast with bfloat16.
+    # render_chunked : 这是一个分块渲染策略函数。如果我们一口气把 100 帧的需求扔进带自注意力的庞大 Transformer 模型里，显存会原地崩掉。
+    # 因此，它实际上是把目标帧分割为每批 16 帧去分别通过大模型慢慢渲染。然后自动拼接起来。
+    # 内部自带了 PyTorch 的 torch.amp.autocast 以开启自动混合精度计算（节省显存）。
     #
-    # Input tuple: (cond_images, rays, cam_tokens)
-    #   cond_images: (B, num_cond_views, 3, H, W)
-    #   rays:        (B, num_cond_views + video_length, 6, H, W)
-    #   cam_tokens:  (B, num_cond_views + video_length, 11)
-    #
-    # Output: (B, video_length, 3, H, W) — rendered RGB frames
+    # 接收参数：输入原图像 cond_images, 计算出的 3D 射线 rays, 相机标签 cam_tokens
+    # 最终输出的 video_out 维度将会是 (B, 视频总帧数, 3通道RGB, H高, W宽)
     print(f"Rendering {args.video_length} frames...")
     with torch.no_grad():
         with torch.amp.autocast(device_type="cuda", dtype=dtype):
@@ -215,8 +210,9 @@ def main():
     print(f"Output video shape: {video_out.shape}")
 
     # -------------------------------------------------------------------------
-    # 6. Save output video
+    # 第六步：保存最后生成的视频
     # -------------------------------------------------------------------------
+    # 借助于工具函数将 (T, C, H, W) 这种序列张量转存为用户可正常播放的 MP4 动画文件
     save_video(video_out[0], args.output)
     print(f"Saved to {args.output}")
 
