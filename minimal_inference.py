@@ -33,6 +33,14 @@ Available checkpoints (set via --model_repo and --attention_type):
 """
 
 import argparse
+import os
+import sys
+
+# Pre-parse --gpu to set CUDA_VISIBLE_DEVICES before PyTorch initializes CUDA
+if "--gpu" in sys.argv:
+    gpu_idx = sys.argv.index("--gpu")
+    if gpu_idx + 1 < len(sys.argv):
+        os.environ["CUDA_VISIBLE_DEVICES"] = sys.argv[gpu_idx + 1]
 
 import torch
 from eval.export import save_video
@@ -103,10 +111,6 @@ def main():
         help="GPU ID to use (sets CUDA_VISIBLE_DEVICES)",
     )
     args = parser.parse_args()
-
-    import os
-    if args.gpu is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     # -------------------------------------------------------------------------
     # 1. Device and dtype setup
