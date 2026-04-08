@@ -271,13 +271,13 @@ def save_feature_grid(feature_maps_dict, original_images, output_path,
         axes = axes[np.newaxis, :]
 
     col_titles = [
-        "原始输入图像",
-        "VGGT输出\nPCA伪彩色 (2048d)",
-        "Connector投影后\nPCA伪彩色 (768d)",
-        "LayerNorm后\nPCA伪彩色 (768d)",
-        "VGGT特征\n通道均值热力图",
-        "VGGT特征\nL2范数强度图",
-        "最终特征\nL2范数强度图",
+        "Original Input",
+        "VGGT Output\nPCA Colorized (2048d)",
+        "After Connector\nPCA Colorized (768d)",
+        "After LayerNorm\nPCA Colorized (768d)",
+        "VGGT Features\nChannel Mean Heatmap",
+        "VGGT Features\nL2 Norm Heatmap",
+        "Final Features\nL2 Norm Heatmap",
     ]
 
     for view_idx in range(num_views):
@@ -340,8 +340,8 @@ def save_feature_grid(feature_maps_dict, original_images, output_path,
             ax.set_yticks([])
 
     plt.suptitle(
-        "LagerNVS VGGT Encoder 特征可视化\n"
-        "（Decoder/Renderer 之前的编码器中间层输出）",
+        "LagerNVS VGGT Encoder Feature Visualization\n"
+        "(Intermediate Encoder Outputs before Decoder/Renderer)",
         fontsize=16, fontweight="bold", y=1.02
     )
     plt.tight_layout()
@@ -409,7 +409,7 @@ def save_individual_feature_maps(feature_maps_dict, original_images, output_dir,
         ax.set_xticks([])
         ax.set_yticks([])
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        ax.set_title(f"View {view_idx} - 最终编码特征 L2 范数", fontsize=14)
+        ax.set_title(f"View {view_idx} - Final Encoded Feature L2 Norm", fontsize=14)
         plt.tight_layout()
         plt.savefig(os.path.join(view_dir, "heatmap_l2norm_final.png"), dpi=150, bbox_inches="tight")
         plt.close()
@@ -420,7 +420,7 @@ def save_individual_feature_maps(feature_maps_dict, original_images, output_dir,
         ax.imshow(hm_up, cmap="jet", alpha=0.45)
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_title(f"View {view_idx} - 特征热力叠加图", fontsize=14)
+        ax.set_title(f"View {view_idx} - Feature Heatmap Overlay", fontsize=14)
         plt.tight_layout()
         plt.savefig(os.path.join(view_dir, "overlay_heatmap.png"), dpi=150, bbox_inches="tight")
         plt.close()
