@@ -15,12 +15,16 @@ from vggt.models.vggt import VGGT
 # Main model file
 # Consists of
 # 1. Encoder (Reconstructor)
-#    VGGT-based feature extraction
+#    VGGT-based feature extraction (利用VGGT网络提取图像特征的编码器)
 # 2. Decoder (Renderer)
-#    Series of (Self-attn, X-attn, MLP) blocks
+#    Series of (Self-attn, X-attn, MLP) blocks (一系列包含自注意力、交叉注意力和MLP的解码器渲染块)
 
 
 class EncoderDecoder(nn.Module):
+    """
+    编码-解码器 (Encoder-Decoder) 整体架构。
+    负责将输入的图像和相机特征进行编码，并通过大模型渲染管线输出新视角的图像特征。
+    """
     def __init__(
         self,
         depth,
@@ -56,8 +60,17 @@ class EncoderDecoder(nn.Module):
         num_cond_views,
         timeit=False,
     ):
+        """
+        前向传播逻辑：
+        1. 剥离出现有条件视角 (Input Views) 与需要预测的目标视角 (Target Views)。
+        2. 将条件图像和条件相机Token送入重建器 (Reconstructor) 提取特征。
+        3. 对提取特征展平并扩展至目标射线的维度。
+        4. 通过渲染器 (Renderer) 结合目标普吕克射线 (Plucker Rays) 渲染出最终的新视角内容。
+        """
+        # 前 num_cond_views 是已知的条件输入
         input_images = images[:, :num_cond_views, ...]
         cam_token = cam_token[:, :num_cond_views]
+        # 后面的射线全都是要新渲染的目标视角射线
         target_rays = rays[:, num_cond_views:]
 
         v_target = target_rays.shape[1]
@@ -87,7 +100,11 @@ class EncoderDecoder(nn.Module):
 
 
 class Reconstructor(nn.Module):
-    """Reconstructor module. Extracts generalisable reconstruction features."""
+    """
+    重建器模块 (Reconstructor)。
+    负责从具有相机先验的条件图像中提取具有泛化能力的3D几何相关的重建特征。
+    底层使用视觉基础预训练大模型 (VGGT) 进行处理。
+    """
 
     def __init__(
         self,
@@ -127,10 +144,15 @@ class Reconstructor(nn.Module):
 
     def forward(self, input_images, cam_token):
         """
+        前向传播：
         Inputs:
-            images: (b, v_input, 3, h, w) input images
-            cam_token: (b, v_input, 9) camera conditioning, possibly all-zero when camera
-              not available
+            images: (b, v_input, 3, h, w) 输入源图像序列。
+            cam_token: (b, v_input, 9或11) 相机条件，如果在没有相机位姿时可为全零。
+            
+        流程说明:
+        把原本的图片经过长边518px归一化与裁剪填充后送到 VGGT 主干中。
+        同时对相机的尺度和平移/旋转特征用 MLP 进行初步特征升维映射，作为 conditioning。
+        最后通过全连接层 geo_feature_connector 将两组特征适配对接给目标主模型的 Decoder。
         """
         # resize input images so that longer size is 518
         b, v_input, _, h, w = input_images.shape
@@ -169,6 +191,10 @@ class Reconstructor(nn.Module):
 
 
 def EncDec_VitB8(**kwargs):
+    """
+    返回配备了 ViT-B/8 （12层 Transformer, hidden_size=768, patch_size=8）规模的 Encoder-Decoder 模型。
+    该架构配置对应于项目中加载并使用的主要推演大模型。
+    """
     return EncoderDecoder(
         depth=12, hidden_size=768, patch_size=8, num_heads=12, **kwargs
     )
